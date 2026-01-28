@@ -1,0 +1,8 @@
+# まず全体のオーナー
+* @aohisam
+
+# インフラはインフラ担当（自分でもOK）
+infra/ @aohisam
+
+# アプリはアプリ担当
+app/ @yaohisam
