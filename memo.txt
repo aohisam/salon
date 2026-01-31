@@ -1,0 +1,50 @@
+# 作業開始前
+# 一度mainを最新状態にしたうえで、新しいbranchに切り替える
+# その新しいbranch内で作業を行う
+git checkout main
+git pull
+git checkout -b infra/add-xyz
+
+# 変更確認
+git status
+git diff
+
+# 変更登録
+git add .
+
+# コミット
+git commit -m "ADD XYZ"
+
+# push
+git push -u origin infra/add-xyz
+
+
+
+
+# branch命名パターン
+#「何の作業か」が分かればOK。よくある接頭辞はこれ：
+feat/ 新機能
+fix/ バグ修正
+chore/ 雑務・設定・依存更新
+docs/ ドキュメント
+infra/ インフラ変更（あなたはこれが多い）
+refactor/ リファクタ
+
+# 例：
+chore(infra)/bootstrap-dev-state
+chore(infra)/add-gitkeep
+docs/add-pr-template
+chore/update-terraform-ci
+
+
+
+# dev output値
+tf_lock_table_name = "tf-lock-dev-my-saas"
+tfstate_bucket_name = "tfstate-dev-my-saas-894923172428"
+tfstate_kms_key_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/1000dd13-1cfc-43a6-ace1-cb9b0aad4058"
+
+
+# stg output値
+tf_lock_table_name = "tf-lock-stg-my-saas"
+tfstate_bucket_name = "tfstate-stg-my-saas-894923172428"
+tfstate_kms_key_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/4e969044-269b-40fc-aa89-2d7360e08eae"
