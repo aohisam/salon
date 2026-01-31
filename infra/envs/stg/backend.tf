@@ -1,7 +1,7 @@
 terraform {
   backend "s3" {
     bucket         = "tfstate-stg-my-saas-894923172428"
-    key            = "envs/dev/terraform.tfstate"
+    key            = "envs/stg/terraform.tfstate"
     region         = "ap-northeast-1"
     dynamodb_table = "tf-lock-stg-my-saas"
     encrypt        = true
