@@ -3,7 +3,6 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id  = data.aws_caller_identity.current.account_id
   bucket_name = "tfstate-${var.env}-${var.project}-${local.account_id}"
-  lock_table  = "tf-lock-${var.env}-${var.project}"
   kms_alias   = "alias/tfstate-${var.env}-${var.project}"
 
   tags = {
@@ -68,10 +67,12 @@ data "aws_iam_policy_document" "tfstate_bucket_policy" {
       aws_s3_bucket.tfstate.arn,
       "${aws_s3_bucket.tfstate.arn}/*"
     ]
+
     principals {
       type        = "*"
       identifiers = ["*"]
     }
+
     condition {
       test     = "Bool"
       variable = "aws:SecureTransport"
@@ -87,10 +88,12 @@ data "aws_iam_policy_document" "tfstate_bucket_policy" {
     resources = [
       "${aws_s3_bucket.tfstate.arn}/*"
     ]
+
     principals {
       type        = "*"
       identifiers = ["*"]
     }
+
     condition {
       test     = "StringNotEquals"
       variable = "s3:x-amz-server-side-encryption"
@@ -98,6 +101,7 @@ data "aws_iam_policy_document" "tfstate_bucket_policy" {
     }
   }
 
+  # SSE-KMS必須（暗号化ヘッダが無い PutObject を拒否）
   statement {
     sid     = "DenyUnEncryptedObjectUploads"
     effect  = "Deny"
@@ -105,10 +109,12 @@ data "aws_iam_policy_document" "tfstate_bucket_policy" {
     resources = [
       "${aws_s3_bucket.tfstate.arn}/*"
     ]
+
     principals {
       type        = "*"
       identifiers = ["*"]
     }
+
     condition {
       test     = "Null"
       variable = "s3:x-amz-server-side-encryption"
@@ -122,30 +128,9 @@ resource "aws_s3_bucket_policy" "tfstate" {
   policy = data.aws_iam_policy_document.tfstate_bucket_policy.json
 }
 
-# ---- DynamoDB (Terraform lock) ----
-resource "aws_dynamodb_table" "tf_lock" {
-  name         = local.lock_table
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-  tags         = local.tags
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-}
-
-# ---- outputs（後でbackend設定で使う） ----
+# ---- outputs（envs側 backend.tf の設定に使う） ----
 output "tfstate_bucket_name" {
   value = aws_s3_bucket.tfstate.bucket
-}
-
-output "tf_lock_table_name" {
-  value = aws_dynamodb_table.tf_lock.name
 }
 
 output "tfstate_kms_key_arn" {
