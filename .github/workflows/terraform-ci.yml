@@ -16,7 +16,34 @@ permissions:
   id-token: write
   pull-requests: write
 
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # 変更ファイルから「どの環境を動かすか」を判定
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dev: ${{ steps.filter.outputs.dev }}
+      stg: ${{ steps.filter.outputs.stg }}
+      prod: ${{ steps.filter.outputs.prod }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dev:
+              - 'infra/envs/dev/**'
+              - 'infra/modules/**'
+            stg:
+              - 'infra/envs/stg/**'
+              - 'infra/modules/**'
+            prod:
+              - 'infra/envs/prod/**'
+              - 'infra/modules/**'
+
   fmt_validate:
     runs-on: ubuntu-latest
     defaults:
@@ -24,10 +51,9 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
-
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.14.4" # ローカルと揃えるの推奨
+          terraform_version: "1.14.4"
 
       - name: terraform fmt (check)
         run: terraform fmt -check -recursive
@@ -39,58 +65,114 @@ jobs:
           terraform validate
 
   plan_dev:
-    if: github.event_name == 'pull_request'
-    needs: [fmt_validate]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dev == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [changes, fmt_validate]
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: infra/envs/dev
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.14.4"
 
-      - name: terraform init
-        run: terraform init -input=false
-
+      - run: terraform init -input=false
       - name: terraform plan
-        run: terraform plan -no-color -input=false
+        run: |
+          terraform plan -no-color -input=false -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev
+          path: infra/envs/dev/plan.txt
+
+      - name: Comment plan (dev)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/envs/dev/plan.txt', 'utf8');
+            const body = [
+              '### Terraform plan (dev)',
+              '<details><summary>show plan</summary>',
+              '',
+              '```',
+              plan.substring(0, 60000),
+              '```',
+              '</details>',
+              '',
+              '> Full plan is uploaded as artifact: tfplan-dev'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
 
   plan_stg:
-    if: github.event_name == 'pull_request'
-    needs: [fmt_validate]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.stg == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [changes, fmt_validate]
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: infra/envs/stg
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.14.4"
 
-      - name: terraform init
-        run: terraform init -input=false
-
+      - run: terraform init -input=false
       - name: terraform plan
-        run: terraform plan -no-color -input=false
+        run: |
+          terraform plan -no-color -input=false -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-stg
+          path: infra/envs/stg/plan.txt
+
+      - name: Comment plan (stg)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/envs/stg/plan.txt', 'utf8');
+            const body = [
+              '### Terraform plan (stg)',
+              '<details><summary>show plan</summary>',
+              '',
+              '```',
+              plan.substring(0, 60000),
+              '```',
+              '</details>',
+              '',
+              '> Full plan is uploaded as artifact: tfplan-stg'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
 
   apply_dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [fmt_validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.dev == 'true'
+    needs: [changes, fmt_validate]
     runs-on: ubuntu-latest
     environment: dev
     defaults:
@@ -98,22 +180,19 @@ jobs:
         working-directory: infra/envs/dev
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.14.4"
-
       - run: terraform init -input=false
-      - run: terraform apply -auto-approve -input=false
+      - run: terraform apply -auto-approve -input=false -lock-timeout=5m
 
   apply_stg:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [fmt_validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.stg == 'true'
+    needs: [changes, fmt_validate]
     runs-on: ubuntu-latest
     environment: stg
     defaults:
@@ -121,38 +200,32 @@ jobs:
         working-directory: infra/envs/stg
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.14.4"
-
       - run: terraform init -input=false
-      - run: terraform apply -auto-approve -input=false
+      - run: terraform apply -auto-approve -input=false -lock-timeout=5m
 
   apply_prod:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [fmt_validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.prod == 'true'
+    needs: [changes, fmt_validate]
     runs-on: ubuntu-latest
-    environment: prod  # ← ここで Required reviewers が効く
+    environment: prod
     defaults:
       run:
         working-directory: infra/envs/prod
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_PROD }}
           aws-region: ${{ vars.AWS_REGION }}
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.14.4"
-
       - run: terraform init -input=false
-      - run: terraform apply -auto-approve -input=false
+      - run: terraform apply -auto-approve -input=false -lock-timeout=5m
