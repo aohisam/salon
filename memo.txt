@@ -48,3 +48,12 @@ tfstate_kms_key_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/1000dd13-1cfc
 tf_lock_table_name = "tf-lock-stg-my-saas"
 tfstate_bucket_name = "tfstate-stg-my-saas-894923172428"
 tfstate_kms_key_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/4e969044-269b-40fc-aa89-2d7360e08eae"
+
+
+# tatsuya-prod AWSアカウント情報
+ID：581059493336
+ロール：arn:aws:organizations::894923172428:account/o-6dcyp4ldka/581059493336
+# ロール切り替え時
+Account（アカウントID）：581059493336
+Role name（ロール名）：OrganizationAccountAccessRole
+Display name は任意（例：tatsuya-prod）

@@ -1,8 +1,9 @@
 # salon
+
 ・環境：dev / stg / prod
 
 ・分離方式：
-　・推奨：prodは別AWSアカウント（可能なら3環境別アカウント）
+　prodは別AWSアカウント
 
 ・リージョン：ap-northeast-1
 

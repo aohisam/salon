@@ -4,26 +4,30 @@ on:
   pull_request:
     paths:
       - "infra/**"
+      - ".github/workflows/**"
   push:
-    branches:
-      - "main"
+    branches: ["main"]
     paths:
       - "infra/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
 
 jobs:
-  terraform_fmt_validate:
+  fmt_validate:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: infra
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.6.6"
+          terraform_version: "1.14.4" # ローカルと揃えるの推奨
 
       - name: terraform fmt (check)
         run: terraform fmt -check -recursive
@@ -33,3 +37,122 @@ jobs:
           cd envs/dev
           terraform init -backend=false
           terraform validate
+
+  plan_dev:
+    if: github.event_name == 'pull_request'
+    needs: [fmt_validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/envs/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform plan
+        run: terraform plan -no-color -input=false
+
+  plan_stg:
+    if: github.event_name == 'pull_request'
+    needs: [fmt_validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/envs/stg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform plan
+        run: terraform plan -no-color -input=false
+
+  apply_dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [fmt_validate]
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: infra/envs/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - run: terraform init -input=false
+      - run: terraform apply -auto-approve -input=false
+
+  apply_stg:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [fmt_validate]
+    runs-on: ubuntu-latest
+    environment: stg
+    defaults:
+      run:
+        working-directory: infra/envs/stg
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - run: terraform init -input=false
+      - run: terraform apply -auto-approve -input=false
+
+  apply_prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [fmt_validate]
+    runs-on: ubuntu-latest
+    environment: prod  # ← ここで Required reviewers が効く
+    defaults:
+      run:
+        working-directory: infra/envs/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - run: terraform init -input=false
+      - run: terraform apply -auto-approve -input=false
