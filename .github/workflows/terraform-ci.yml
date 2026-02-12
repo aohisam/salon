@@ -21,13 +21,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # 変更ファイルから「どの環境を動かすか」を判定
+  # 変更ファイルから「どれを動かすか」を判定
   changes:
     runs-on: ubuntu-latest
     outputs:
       dev: ${{ steps.filter.outputs.dev }}
       stg: ${{ steps.filter.outputs.stg }}
       prod: ${{ steps.filter.outputs.prod }}
+      accounts_devstg: ${{ steps.filter.outputs.accounts_devstg }}
+      accounts_prod: ${{ steps.filter.outputs.accounts_prod }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -42,6 +44,12 @@ jobs:
               - 'infra/modules/**'
             prod:
               - 'infra/envs/prod/**'
+              - 'infra/modules/**'
+            accounts_devstg:
+              - 'infra/accounts/devstg/**'
+              - 'infra/modules/**'
+            accounts_prod:
+              - 'infra/accounts/prod/**'
               - 'infra/modules/**'
 
   fmt_validate:
@@ -58,12 +66,110 @@ jobs:
       - name: terraform fmt (check)
         run: terraform fmt -check -recursive
 
-      - name: terraform validate (dev)
+      # envs/dev は provider 無しでもOKだが、validateは残しておく
+      - name: terraform validate (envs/dev)
         run: |
           cd envs/dev
           terraform init -backend=false
           terraform validate
 
+      # accounts は provider が必要なので validate しておくのが安全
+      - name: terraform validate (accounts/devstg)
+        run: |
+          cd accounts/devstg
+          terraform init -backend=false
+          terraform validate
+
+      # prod accounts はファイルがある時だけ（初回追加前でも落ちない）
+      - name: terraform validate (accounts/prod)
+        run: |
+          if [ -d "accounts/prod" ]; then
+            cd accounts/prod
+            terraform init -backend=false
+            terraform validate
+          fi
+
+  # -------------------------
+  # accounts/devstg: PR plan
+  # -------------------------
+  plan_accounts_devstg:
+    if: github.event_name == 'pull_request' && needs.changes.outputs.accounts_devstg == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: [changes, fmt_validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/accounts/devstg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+
+      - run: terraform init -input=false
+      - name: terraform plan
+        run: |
+          terraform plan -no-color -input=false -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-accounts-devstg
+          path: infra/accounts/devstg/plan.txt
+
+      - name: Comment plan (accounts devstg)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/accounts/devstg/plan.txt', 'utf8');
+            const body = [
+              '### Terraform plan (accounts/devstg)',
+              '<details><summary>show plan</summary>',
+              '',
+              '```',
+              plan.substring(0, 60000),
+              '```',
+              '</details>',
+              '',
+              '> Full plan is uploaded as artifact: tfplan-accounts-devstg'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+  # -------------------------
+  # accounts/devstg: main apply
+  # -------------------------
+  apply_accounts_devstg:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.accounts_devstg == 'true'
+    needs: [changes, fmt_validate]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/accounts/devstg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEVSTG }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+      - run: terraform init -input=false
+      - run: terraform apply -auto-approve -input=false -lock-timeout=5m
+
+  # -------------------------
+  # envs/dev PR plan
+  # -------------------------
   plan_dev:
     if: github.event_name == 'pull_request' && needs.changes.outputs.dev == 'true' && github.event.pull_request.head.repo.full_name == github.repository
     needs: [changes, fmt_validate]
@@ -117,6 +223,9 @@ jobs:
               body
             });
 
+  # -------------------------
+  # envs/stg PR plan
+  # -------------------------
   plan_stg:
     if: github.event_name == 'pull_request' && needs.changes.outputs.stg == 'true' && github.event.pull_request.head.repo.full_name == github.repository
     needs: [changes, fmt_validate]
@@ -170,6 +279,9 @@ jobs:
               body
             });
 
+  # -------------------------
+  # envs/dev main apply（environment:dev）
+  # -------------------------
   apply_dev:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.dev == 'true'
     needs: [changes, fmt_validate]
@@ -190,6 +302,9 @@ jobs:
       - run: terraform init -input=false
       - run: terraform apply -auto-approve -input=false -lock-timeout=5m
 
+  # -------------------------
+  # envs/stg main apply（environment:stg）
+  # -------------------------
   apply_stg:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.stg == 'true'
     needs: [changes, fmt_validate]
@@ -210,6 +325,41 @@ jobs:
       - run: terraform init -input=false
       - run: terraform apply -auto-approve -input=false -lock-timeout=5m
 
+  # -------------------------
+  # accounts/prod: main plan+apply（environment:prod）
+  # PR planはやらない（現状のprodロール制約に合わせる）
+  # -------------------------
+  apply_accounts_prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.accounts_prod == 'true'
+    needs: [changes, fmt_validate]
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults:
+      run:
+        working-directory: infra/accounts/prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.4"
+      - run: terraform init -input=false
+      - name: terraform plan (prod accounts)
+        run: |
+          terraform plan -no-color -input=false -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-accounts-prod
+          path: infra/accounts/prod/plan.txt
+      - run: terraform apply -auto-approve -input=false -lock-timeout=5m
+
+  # -------------------------
+  # envs/prod main apply（environment:prod）
+  # -------------------------
   apply_prod:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.prod == 'true'
     needs: [changes, fmt_validate]
