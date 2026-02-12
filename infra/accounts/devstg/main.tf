@@ -14,8 +14,8 @@ locals {
   project    = "salon"
 
   # === ここはあなたの GitHub に合わせて変更 ===
-  github_org  = "aohisam  # 例: "aohisam"
-  github_repo = "salon" # 例: "salon"
+  github_org  = "aohisam"
+  github_repo = "salon"
 
   # === 人間用ロールをAssumeできる主体（暫定） ===
   # 例：今あなたが使っている管理用IAMユーザー/ロールARNを入れる
