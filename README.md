@@ -4,6 +4,7 @@
 **「インフラ=コードが正」**を前提に、AWSコンソールの手作業を原則禁止し、PRベースで変更します。
 
 ## 環境
+
 - dev
 - stg
 - prod（本番は **別AWSアカウント**）
@@ -11,6 +12,7 @@
 リージョン: `ap-northeast-1`
 
 ## ディレクトリ構成
+
 - `infra/bootstrap/`
   - Terraform の state を置くための **S3 + KMS** を作る（初期基盤）
   - bootstrap は “state置き場を作る作業” なので **例外的にローカル実行OK（基本1回）**
@@ -21,12 +23,14 @@
   - 再利用する Terraform module
 
 ## Terraform state（台帳）の考え方
+
 - state は **S3 backend** に保存する（ローカルに常駐させない）
 - state は **SSE-KMS** で暗号化される（復号できる主体をKMS権限で制御）
 - ロックは **S3のロックファイル方式（use_lockfile）** を使用
-  - 以前の `dynamodb_table` は非推奨方向（Terraform側でdeprecated扱い）なので使いません 
+  - 以前の `dynamodb_table` は非推奨方向（Terraform側でdeprecated扱い）なので使いません
 
 ## 運用ルール（最重要）
+
 - **ローカルから `terraform apply` は原則禁止**
   - 例外: `infra/bootstrap/*` の初回構築/更新（必要時のみ）
 - 変更手順は必ずこれ：
@@ -39,6 +43,7 @@
      - prod: GitHub Environments の承認後に実行（Required reviewers）
 
 ## CI/CD（GitHub Actions）
+
 - PR時:
   - `terraform fmt -check`
   - `terraform validate`
@@ -49,10 +54,30 @@
   - prod は Environment 承認後に `apply`
 
 ## 命名/タグ
+
 - 主要タグ:
   - `Project`, `Env`, `ManagedBy=Terraform`
 - リソース名には `project/env/region` を含める方針（環境誤爆を防ぐ）
 
+## Terraform外の例外一覧（手作業が必要なもの）
+
+Terraformで管理せず、AWSコンソール（または組織管理）で実施する“例外”。
+隠さず明文化し、監査/引継ぎ/売却DDで説明できる状態にする。
+
+- ルートアカウントのMFA有効化（全アカウント）
+  - 理由：アカウント防衛の最優先。Terraformで安全に扱う領域ではない
+  - 状態：MFA有効（確認済み）
+
+- ルートアカウントのアクセスキー削除（存在する場合）
+  - 理由：長期キーは漏洩リスクが高く事故の元
+  - 状態：アクセスキーなし（確認済み）
+
+- 請求連絡先（Billing contact）・セキュリティ連絡先（Security contact）の設定
+  - 理由：重要通知（請求/セキュリティ）が適切な担当へ届くようにする
+  - 方針：個人メールではなく配布リスト（例：billing@ / security@）を推奨
+  - 状態：設定済み（dev/stg/prod 各アカウント）
+
 ## 例外対応（break-glass）
+
 - 緊急時は管理者のみが一時的に操作できる（最小限の権限）
 - ただし復旧後は Terraform に反映して「コードが正」に戻す
