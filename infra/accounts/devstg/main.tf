@@ -24,17 +24,17 @@ locals {
   ]
 
   # === envs の backend.tf から拾った値（あなたの現状に合わせ済み） ===
-  dev_state_bucket = "tfstate-dev-my-saas-894923172428"
-  dev_state_prefix = "envs/dev/"
+  dev_state_bucket  = "tfstate-dev-my-saas-894923172428"
+  dev_state_prefix  = "envs/dev/"
   dev_state_kms_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/1000dd13-1cfc-43a6-ace1-cb9b0aad4058"
 
-  stg_state_bucket = "tfstate-stg-my-saas-894923172428"
-  stg_state_prefix = "envs/stg/"
+  stg_state_bucket  = "tfstate-stg-my-saas-894923172428"
+  stg_state_prefix  = "envs/stg/"
   stg_state_kms_arn = "arn:aws:kms:ap-northeast-1:894923172428:key/4e969044-269b-40fc-aa89-2d7360e08eae"
 
   tags_shared = { Project = local.project, Env = "shared", ManagedBy = "Terraform" }
-  tags_dev    = { Project = local.project, Env = "dev",    ManagedBy = "Terraform" }
-  tags_stg    = { Project = local.project, Env = "stg",    ManagedBy = "Terraform" }
+  tags_dev    = { Project = local.project, Env = "dev", ManagedBy = "Terraform" }
+  tags_stg    = { Project = local.project, Env = "stg", ManagedBy = "Terraform" }
 }
 
 provider "aws" {
@@ -162,7 +162,7 @@ data "aws_iam_policy_document" "tfstate_dev" {
   }
 
   statement {
-    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = ["arn:aws:s3:::${local.dev_state_bucket}/${local.dev_state_prefix}*"]
   }
 
@@ -184,7 +184,7 @@ data "aws_iam_policy_document" "tfstate_stg" {
   }
 
   statement {
-    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = ["arn:aws:s3:::${local.stg_state_bucket}/${local.stg_state_prefix}*"]
   }
 

@@ -25,7 +25,7 @@ locals {
   prod_state_kms_arn = "arn:aws:kms:ap-northeast-1:581059493336:key/a4bebf8a-61ad-42e5-8c81-5620fdc25b22"
 
   tags_shared = { Project = local.project, Env = "shared", ManagedBy = "Terraform" }
-  tags_prod   = { Project = local.project, Env = "prod",   ManagedBy = "Terraform" }
+  tags_prod   = { Project = local.project, Env = "prod", ManagedBy = "Terraform" }
 }
 
 provider "aws" {
@@ -99,7 +99,7 @@ data "aws_iam_policy_document" "tfstate_prod" {
   }
 
   statement {
-    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = ["arn:aws:s3:::${local.prod_state_bucket}/${local.prod_state_prefix}*"]
   }
 
